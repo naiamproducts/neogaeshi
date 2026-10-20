@@ -51,8 +51,8 @@ compatibility line; skipped by default), `--force` (replace a conflicting
 
 | Component | Location | Touched again? |
 |---|---|---|
-| NeoGaeshi repo copy (V2 profile root) | `~/.local/share/neogaeshi` | on re-install |
-| V1 profile config (hermetic) | `~/.config/neogaeshi-v1` | on re-install |
+| NeoGaeshi repo copy (V2 profile root) | `~/.local/share/neogaeshi` | on re-install, on `neogaeshi update` |
+| V1 profile config (hermetic) | `~/.config/neogaeshi-v1` | on re-install, on `neogaeshi update` |
 | OpenCode V1 runtime (1.19.3, isolated) | `~/.local/share/opencode-v1` | on re-install |
 | `neogaeshi` CLI | `~/.local/bin/neogaeshi` (symlink) | on re-install |
 | engram | `~/.local/bin/engram` | no |
@@ -70,6 +70,7 @@ neogaeshi              # V1 line (the product): TUI with the home-screen logo, h
 neogaeshi -c           # continue the most recent V1 session
 neogaeshi -s <id>      # resume a V1 session by id
 neogaeshi v2           # optional V2 line: system OpenCode V2 (needs OpenCode 2.x on PATH)
+neogaeshi update       # self-update: pull the latest profile + re-sync the V1 config
 neogaeshi --version    # both lines' status
 neogaeshi help         # full usage
 ```
@@ -121,6 +122,32 @@ persist across sessions.
 - Linux (x86_64 or aarch64)
 - `git`, `curl`, `node`, `npm` — the installer detects and installs missing ones
 - An account with a model provider (or free OpenCode Zen models)
+
+## Updating
+
+```bash
+neogaeshi update        # V1 line (default): pull the latest profile + re-sync the V1 config
+neogaeshi update --v1   # explicit form of the above
+neogaeshi update --v2   # V2 line: pull only — the V2 profile IS the repo checkout
+```
+
+- `update` fast-forwards the repo copy (`~/.local/share/neogaeshi`) from
+  GitHub, lists the pulled commits, and re-syncs the hermetic V1 config
+  (`~/.config/neogaeshi-v1`) from the repo templates — no manual `git pull` +
+  copy sequences, ever.
+- **Backups:** any installed config file that differs from the incoming
+  template is copied to `<file>.bak.<timestamp>` before being replaced, and
+  the output lists the backups. Your custom edits live there.
+- If the checkout has local modifications or has diverged from GitHub,
+  `update` stops and tells you — it never resets or overwrites your changes.
+- `update` covers the **profile only**. The OpenCode V1 runtime
+  (`~/.local/share/opencode-v1`) and engram are separate components and are
+  not touched by it.
+- For the V2 line there is nothing to re-sync: `neogaeshi v2` runs OpenCode
+  V2 from the repo root, so pulling the repo *is* the V2 update — which is
+  exactly what `update --v2` does.
+- Your global opencode config/data (`~/.config/opencode`,
+  `~/.local/share/opencode`) is never touched by updates.
 
 ## Uninstall
 

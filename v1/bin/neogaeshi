@@ -9,6 +9,12 @@
 #
 # `neogaeshi v2 ...`: opens the SYSTEM OpenCode V2 from the NeoGaeshi repo
 # root, so the V2 line (skills, theme, plugin, engram MCP) is auto-discovered.
+#
+# `neogaeshi update [--v1|--v2]`: self-update. Intercepted BEFORE the V1
+# passthrough below and delegated to install.sh (--update / --update-v2),
+# which fast-forwards the repo copy from origin and re-syncs the hermetic V1
+# config, backing up local config edits first. Profile updates only — the V1
+# runtime and engram are separate components, updated separately.
 set -euo pipefail
 
 # --- Locate this script (through symlinks) ---------------------------------
@@ -69,6 +75,11 @@ ${BOLD}Profile${RESET}
 ${BOLD}Commands${RESET}
   (none)            open the interactive V1 TUI
   v2 [args...]      run the system OpenCode V2 from the NeoGaeshi root
+  update [--v1]     self-update: pull the latest profile and re-sync the
+                    hermetic V1 config (local config edits are backed up
+                    first as <file>.bak.<timestamp>)
+  update --v2       pull-only update: the V2 profile IS the repo checkout,
+                    so it updates in place (restart with \`neogaeshi v2\`)
   help              show this help
   --version         show neogaeshi + runtime info
 
@@ -90,7 +101,11 @@ ${BOLD}Other subcommands${RESET}
 ${MUTED}V1 profile config lives in ~/.config/neogaeshi-v1; the V1 runtime in
 ~/.local/share/opencode-v1. Your global opencode (V2) config is never touched;
 \`neogaeshi v2\` runs the global V2 binary but from the NeoGaeshi repo root so
-the repo's skills/theme/plugin/engram MCP apply.${RESET}
+the repo's skills/theme/plugin/engram MCP apply.
+
+\`neogaeshi update\` refreshes the PROFILE only (repo copy + hermetic V1
+config). The V1 runtime and engram are separate components and are not
+updated by it.${RESET}
 EOF
 }
 
@@ -103,6 +118,29 @@ case "${1:-}" in
   --version)
     version_block
     exit 0
+    ;;
+  update)
+    shift
+    MODE="--update"
+    case "${1:-}" in
+      ""|--v1) ;;  # no flag / explicit V1 = the default line
+      --v2) MODE="--update-v2" ;;
+      *)
+        printf '%sneogaeshi update:%s unknown flag: %s\n' "$VIOLET" "$RESET" "$1" >&2
+        printf 'usage: neogaeshi update [--v1 | --v2]  (see: neogaeshi help)\n' >&2
+        exit 2
+        ;;
+    esac
+    [[ $# -eq 0 ]] || shift   # drop the consumed flag, if any
+    if [[ $# -gt 0 ]]; then
+      printf '%sneogaeshi update:%s unexpected argument: %s\n' "$VIOLET" "$RESET" "$1" >&2
+      printf 'usage: neogaeshi update [--v1 | --v2]  (see: neogaeshi help)\n' >&2
+      exit 2
+    fi
+    # The installer owns the update logic (same placeholder substitution as a
+    # fresh install); it only needs the repo root resolved above.
+    export NEOGAESHI_ROOT
+    exec bash "$NEOGAESHI_ROOT/install.sh" "$MODE"
     ;;
   v2)
     shift

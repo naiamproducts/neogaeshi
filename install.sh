@@ -19,7 +19,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/naiamproducts/neogaeshi/main/install.sh | bash
-#   bash install.sh [--with-auth] [--with-v2] [--force] [--uninstall] [--help]
+#   bash install.sh [--with-auth] [--with-v2] [--force] [--uninstall] [--update] [--update-v2] [--help]
 #
 # Flags:
 #   --with-auth    copy an existing ~/.local/share/opencode/auth.json into the
@@ -31,6 +31,15 @@
 #   --uninstall    remove NeoGaeshi (symlink, profile config, V1 runtime, repo
 #                  copy). Never touches your global opencode config or data,
 #                  and leaves the general-purpose engram/opencode binaries alone
+#   --update       update mode (run by `neogaeshi update`): fast-forward the
+#                  repo copy at NEOGAESHI_ROOT from origin and re-sync the
+#                  hermetic V1 profile config. Installed config files that
+#                  differ from the incoming templates are backed up first (as
+#                  <file>.bak.<timestamp>). Refuses to run over local
+#                  modifications or a diverged checkout. Never touches the V1
+#                  runtime, engram, or your global opencode config/data
+#   --update-v2    pull-only update (run by `neogaeshi update --v2`): the V2
+#                  profile IS the repo checkout, so pulling updates it in place
 #   --help         show this help
 #
 # Environment (mostly for testing):
@@ -75,16 +84,24 @@ WITH_AUTH=0
 WITH_V2=0
 FORCE=0
 UNINSTALL=0
+UPDATE=0
+UPDATE_V2=0
 for arg in "$@"; do
   case "$arg" in
     --with-auth) WITH_AUTH=1 ;;
     --with-v2) WITH_V2=1 ;;
     --force) FORCE=1 ;;
     --uninstall) UNINSTALL=1 ;;
+    --update) UPDATE=1 ;;
+    --update-v2) UPDATE_V2=1 ;;
     --help|-h) usage; exit 0 ;;
     *) printf '%sUnknown option: %s (see --help)%s\n' "$RED" "$arg" "$RESET" >&2; exit 1 ;;
   esac
 done
+if [[ "$UPDATE" == "1" && "$UPDATE_V2" == "1" ]]; then
+  printf '%sOptions --update and --update-v2 are mutually exclusive (see --help)%s\n' "$RED" "$RESET" >&2
+  exit 1
+fi
 
 # --- Sudo helper (only ever used for the required packages) -----------------
 SUDO_OK=0
@@ -343,6 +360,131 @@ uninstall() {
   printf '\n%sNote:%s engram and any system OpenCode V2 binary were left in place\n  (general-purpose tools; remove them yourself if unwanted).\n  Your global opencode config/data (~/.config/opencode, ~/.local/share/opencode)\n  was never touched.\n\n' "$MUTED" "$RESET"
 }
 
+# --- 7b. Update mode (run by `neogaeshi update`) ----------------------------
+# Fast-forwards the repo copy from origin and re-syncs the hermetic V1 config.
+# The placeholder substitution is delegated to v1/install.sh (--update-config)
+# so install and update cannot drift apart. Scope: profile only — the V1
+# runtime (~/.local/share/opencode-v1), engram, and the user's global opencode
+# config/data are separate concerns and are never touched here.
+run_update() {
+  local line="$1"   # v1 | v2
+  printf '\n%sNeoGaeshi update%s (%s line)\n\n' "$VIOLET" "$RESET" "$line"
+
+  [[ -f "$NEOGAESHI_ROOT/v1/bin/neogaeshi" ]] \
+    || fail "No NeoGaeshi install found at $NEOGAESHI_ROOT. Install first: curl -fsSL $REPO_URL/raw/main/install.sh | bash"
+
+  git -C "$NEOGAESHI_ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+    || fail "The install at $NEOGAESHI_ROOT is not a git clone (it was installed from a local source copy), so 'neogaeshi update' cannot update it automatically.
+Manual remedy: refresh the repo copy from a fresh clone, then re-run the installer:
+  rm -rf $NEOGAESHI_ROOT
+  git clone $REPO_URL $NEOGAESHI_ROOT
+  bash $NEOGAESHI_ROOT/install.sh"
+
+  local branch
+  branch="$(git -C "$NEOGAESHI_ROOT" symbolic-ref --short HEAD 2>/dev/null || true)"
+  [[ -n "$branch" ]] \
+    || fail "The checkout at $NEOGAESHI_ROOT is in detached-HEAD state; cannot update a branch. Re-install NeoGaeshi to get a clean checkout."
+
+  # Resolve engram once: needed for the V1 re-sync and to recognize the
+  # installer's own edit of the tracked root opencode.json (see below).
+  local engram_bin="${ENGRAM_BIN:-$(command -v engram || true)}"
+
+  # Refuse to run over user edits. Two kinds of dirt are recognized as
+  # installer noise, not user work:
+  #   - mode-only changes (install.sh chmod +x's the launcher in the checkout)
+  #   - the installer's in-place __ENGRAM_BIN__ rewrite of the tracked root
+  #     opencode.json (for the V2 line); reverted before the merge, re-applied
+  #     after it
+  local subst_applied=0
+  if [[ -n "$(git -C "$NEOGAESHI_ROOT" status --porcelain -- opencode.json)" ]] \
+    && [[ -n "$engram_bin" ]] \
+    && cmp -s <(sed "s|$engram_bin|__ENGRAM_BIN__|g" "$NEOGAESHI_ROOT/opencode.json") \
+              <(git -C "$NEOGAESHI_ROOT" show HEAD:opencode.json); then
+    subst_applied=1
+  fi
+
+  # Any other content change, staged change, or untracked file is user work.
+  # numstat lists mode-only changes as "0<TAB>0<TAB>path" — no content change,
+  # so they (and only they) are filtered out as installer noise.
+  local leftovers=""
+  leftovers="$(git -C "$NEOGAESHI_ROOT" diff --numstat | grep -v $'^0\t0\t' || true)"
+  if [[ "$subst_applied" == "1" ]]; then
+    leftovers="$(printf '%s\n' "$leftovers" | grep -v $'\topencode.json$' || true)"
+  fi
+  leftovers+="$(git -C "$NEOGAESHI_ROOT" diff --cached --numstat)"
+  leftovers+="$(git -C "$NEOGAESHI_ROOT" ls-files --others --exclude-standard)"
+  if [[ -n "${leftovers//[[:space:]]/}" ]]; then
+    fail "The checkout at $NEOGAESHI_ROOT has local modifications; refusing to update over them.
+Inspect with:  git -C $NEOGAESHI_ROOT status
+Commit or stash your changes there, then re-run 'neogaeshi update'."
+  fi
+
+  # Absorb the mode-only worktree noise before the merge: git refuses to
+  # merge over ANY local difference, including a bare chmod +x. Restoring the
+  # index's mode is safe here (content is identical) and the merge then
+  # re-applies the upstream mode.
+  local mode_only f
+  mode_only="$(git -C "$NEOGAESHI_ROOT" diff --numstat | grep $'^0\t0\t' | cut -f3- || true)"
+  if [[ -n "$mode_only" ]]; then
+    while IFS= read -r f; do
+      [[ -n "$f" ]] || continue
+      git -C "$NEOGAESHI_ROOT" checkout -- "$f"
+    done <<<"$mode_only"
+    info "Absorbed installer mode-only changes (chmod +x on files in the checkout)"
+  fi
+
+  if [[ "$subst_applied" == "1" ]]; then
+    git -C "$NEOGAESHI_ROOT" checkout -- opencode.json
+    info "Recognized the installer's own __ENGRAM_BIN__ edit of opencode.json (not user work); re-applied after the update"
+  fi
+
+  local old_sha new_sha
+  old_sha="$(git -C "$NEOGAESHI_ROOT" rev-parse HEAD)"
+  info "Fetching origin $branch..."
+  git -C "$NEOGAESHI_ROOT" fetch --quiet origin "$branch" \
+    || fail "git fetch from origin failed (network?). Nothing was changed."
+
+  if ! git -C "$NEOGAESHI_ROOT" merge-base --is-ancestor HEAD "origin/$branch"; then
+    fail "The checkout at $NEOGAESHI_ROOT has local commits that are not on origin/$branch (it diverged).
+Refusing to reset or overwrite local work. Inspect with:
+  git -C $NEOGAESHI_ROOT log --oneline origin/$branch..HEAD"
+  fi
+
+  new_sha="$(git -C "$NEOGAESHI_ROOT" rev-parse "origin/$branch")"
+  if [[ "$old_sha" == "$new_sha" ]]; then
+    ok "Already up to date (origin/$branch @ ${new_sha:0:7})"
+  else
+    git -C "$NEOGAESHI_ROOT" merge --ff-only --quiet "origin/$branch" \
+      || fail "Fast-forward merge failed; nothing beyond the fetch was changed."
+    ok "Updated to $(git -C "$NEOGAESHI_ROOT" rev-parse --short HEAD)"
+    printf '\n%sPulled commits:%s\n' "$MUTED" "$RESET"
+    git -C "$NEOGAESHI_ROOT" log --oneline "$old_sha..$new_sha" | sed 's/^/  /'
+    info "Profile, skills and launcher updated"
+  fi
+
+  # Re-apply the installer's __ENGRAM_BIN__ edit if we reverted it above, so
+  # the tree ends in the same installed state it was in before the update.
+  if [[ "$subst_applied" == "1" ]]; then
+    sed -i "s|__ENGRAM_BIN__|$engram_bin|g" "$NEOGAESHI_ROOT/opencode.json"
+  fi
+
+  if [[ "$line" == "v2" ]]; then
+    printf '\n%sThe V2 profile IS the repo checkout:%s it updated in place at\n  %s\nRestart the V2 line from the repo root to pick up the changes: %sneogaeshi v2%s\n\n' \
+      "$MUTED" "$RESET" "$NEOGAESHI_ROOT" "$BOLD" "$RESET"
+    return 0
+  fi
+
+  # V1 line: re-sync the hermetic config from the repo's templates (with
+  # backups of any local edits) via the same code path as a fresh install.
+  printf '\n'
+  info "Re-syncing the hermetic V1 profile config..."
+  [[ -n "$engram_bin" ]] \
+    || fail "engram not found on PATH (needed to re-sync the V1 config). Install engram, or set ENGRAM_BIN, then re-run."
+  ENGRAM_BIN="$engram_bin" bash "$NEOGAESHI_ROOT/v1/install.sh" --update-config
+
+  printf '\n%sDone.%s The OpenCode V1 runtime (~/.local/share/opencode-v1) and engram\nare separate components and were not touched — runtime updates are a\nseparate concern from profile updates.\n\n' "$VIOLET" "$RESET"
+}
+
 # --- 8. Sanity + next steps -------------------------------------------------
 finish() {
   printf '\n%s[4/4]%s Sanity check\n' "$VIOLET" "$RESET"
@@ -396,6 +538,15 @@ EOF
 # --- Run --------------------------------------------------------------------
 if [[ "$UNINSTALL" == "1" ]]; then
   uninstall
+  exit 0
+fi
+
+if [[ "$UPDATE" == "1" ]]; then
+  run_update v1
+  exit 0
+fi
+if [[ "$UPDATE_V2" == "1" ]]; then
+  run_update v2
   exit 0
 fi
 

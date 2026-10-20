@@ -10,6 +10,14 @@
 # Normally invoked by the repo-root install.sh, which also installs the
 # prerequisites (engram, OpenCode V2). It can run standalone.
 #
+# Flags:
+#   --force       back up and replace a conflicting ~/.local/bin/neogaeshi entry
+#   --with-auth   copy the global auth.json into the profile (see below)
+#   --update-config   config re-sync only (run by `neogaeshi update`): skip the
+#                     runtime, auth and CLI steps, and back up every installed
+#                     config file that differs from the incoming template (as
+#                     <file>.bak.<timestamp>) before replacing it
+#
 # Environment:
 #   ENGRAM_BIN   absolute path to the engram binary (default: found on PATH)
 set -euo pipefail
@@ -42,11 +50,13 @@ fi
 
 FORCE=0
 WITH_AUTH=0
+UPDATE_CONFIG=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --with-auth) WITH_AUTH=1 ;;
-    *) printf 'Unknown option: %s (supported: --force, --with-auth)\n' "$arg" >&2; exit 1 ;;
+    --update-config) UPDATE_CONFIG=1 ;;
+    *) printf 'Unknown option: %s (supported: --force, --with-auth, --update-config)\n' "$arg" >&2; exit 1 ;;
   esac
 done
 
@@ -89,18 +99,28 @@ install_runtime() {
 }
 
 # --- 2. Profile config ------------------------------------------------------
+# Renders v1/profile/ into the hermetic config dir, rewriting the placeholders
+# so they point at the INSTALLED locations rather than the repo checkout.
+# In --update-config mode (run by `neogaeshi update`) every installed file
+# that differs from the incoming template is backed up to
+# <file>.bak.<timestamp> before being replaced, so local edits survive.
 install_config() {
-  info "Installing profile into $CONFIG_DIR"
+  if [[ "$UPDATE_CONFIG" == "1" ]]; then
+    info "Re-syncing profile into $CONFIG_DIR (backing up changed files first)"
+  else
+    info "Installing profile into $CONFIG_DIR"
+  fi
   mkdir -p "$CONFIG_DIR"
 
-  # Copy the profile tree, rewriting the placeholders so they point at the
-  # INSTALLED locations rather than the repo checkout:
+  # Render the profile tree into a staging dir first:
   #   tui.json:       __NEOGAESHI_CONFIG__  -> installed config dir (plugin path)
   #   opencode.json:  __NEOGAESHI_ROOT__    -> repo root (skills path)
   #                   __ENGRAM_BIN__        -> absolute engram binary path
-  local src dst
+  local staging src rel dst
+  staging="$(mktemp -d)"
   while IFS= read -r -d '' src; do
-    dst="$CONFIG_DIR/${src#"$PROFILE_SRC"/}"
+    rel="${src#"$PROFILE_SRC"/}"
+    dst="$staging/$rel"
     mkdir -p "$(dirname "$dst")"
     case "$src" in
       */tui.json)
@@ -116,6 +136,21 @@ install_config() {
     esac
   done < <(find "$PROFILE_SRC" -type f -print0)
 
+  # Commit the staged files into the config dir, backing up local edits first.
+  local ts backups=()
+  ts="$(date +%Y%m%d%H%M%S)"
+  while IFS= read -r -d '' src; do
+    rel="${src#"$staging"/}"
+    dst="$CONFIG_DIR/$rel"
+    mkdir -p "$(dirname "$dst")"
+    if [[ "$UPDATE_CONFIG" == "1" && -f "$dst" ]] && ! cmp -s "$src" "$dst"; then
+      cp -p "$dst" "$dst.bak.$ts"
+      backups+=("$dst.bak.$ts")
+    fi
+    cp "$src" "$dst"
+  done < <(find "$staging" -type f -print0)
+  rm -rf "$staging"
+
   [[ -f "$CONFIG_DIR/opencode.json" ]] || fail "opencode.json missing after copy"
   [[ -f "$CONFIG_DIR/tui.json" ]] || fail "tui.json missing after copy"
   [[ -f "$CONFIG_DIR/themes/neogaeshi-v1.json" ]] || fail "theme missing after copy"
@@ -124,6 +159,17 @@ install_config() {
     fail "placeholders not fully substituted in opencode.json"
   fi
   ok "Profile installed (opencode.json, tui.json, logo plugin, theme, agent)"
+
+  if [[ "$UPDATE_CONFIG" == "1" ]]; then
+    if [[ "${#backups[@]}" -gt 0 ]]; then
+      info "Backed up local edits before overwrite:"
+      local b
+      for b in "${backups[@]}"; do printf '      %s\n' "$b"; done
+      info "Your custom edits live in those .bak files — re-apply them on top if you want them back"
+    else
+      ok "No local config edits to back up"
+    fi
+  fi
 }
 
 # --- 2b. Optional provider auth ---------------------------------------------
@@ -177,6 +223,13 @@ install_cli() {
 }
 
 # --- Run --------------------------------------------------------------------
+if [[ "$UPDATE_CONFIG" == "1" ]]; then
+  printf '\n\033[38;5;141mNeoGaeshi V1 config re-sync\033[0m\n\n'
+  install_config
+  printf '\n\033[38;5;141m✔ Config re-synced.\033[0m\n\n'
+  exit 0
+fi
+
 printf '\n\033[38;5;141mNeoGaeshi V1 installer\033[0m (OpenCode %s, isolated)\n\n' "$V1_VERSION"
 install_runtime
 install_config
