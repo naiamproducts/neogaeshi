@@ -1,0 +1,5 @@
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "theme": "neogaeshi-v1",
+  "plugin": ["__NEOGAESHI_CONFIG__/tui-plugins/neogaeshi-logo.tsx"]
+}

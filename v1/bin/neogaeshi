@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# neogaeshi — launcher for the NeoGaeshi blue-team profile.
+#
+# Default (no args / V1 flags): opens OpenCode V1 (1.x) with the NeoGaeshi
+# profile. This wrapper is hermetic: it points every XDG / OPENCODE_* variable
+# at ~/.config/neogaeshi-v1 so it NEVER touches the user's global OpenCode V2
+# install (~/.config/opencode, ~/.local/share/opencode, the global binary).
+# It execs the isolated V1 runtime installed by v1/install.sh.
+#
+# `neogaeshi v2 ...`: opens the SYSTEM OpenCode V2 from the NeoGaeshi repo
+# root, so the V2 line (skills, theme, plugin, engram MCP) is auto-discovered.
+set -euo pipefail
+
+# --- Locate this script (through symlinks) ---------------------------------
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+V1_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+# bin/ -> v1/ -> repo root
+NEOGAESHI_ROOT="$(cd "$V1_DIR/../.." && pwd)"
+
+# --- Isolated V1 layout -----------------------------------------------------
+NEOGAESHI_HOME="${NEOGAESHI_HOME:-$HOME/.config/neogaeshi-v1}"
+V1_BIN="$HOME/.local/share/opencode-v1/node_modules/.bin/opencode"
+
+# --- Presentation ----------------------------------------------------------
+VIOLET=$'\033[38;5;141m'
+MUTED=$'\033[38;5;245m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
+
+version_block() {
+  local installed="not installed"
+  if [[ -x "$V1_BIN" ]]; then
+    installed="$("$V1_BIN" --version 2>/dev/null || echo "unknown")"
+  fi
+  local v2installed="not on PATH"
+  if command -v opencode >/dev/null 2>&1; then
+    v2installed="$(opencode --version 2>/dev/null || echo "unknown")"
+  fi
+  printf '%sneogaeshi%s 0.1.0\n' "$VIOLET" "$RESET"
+  printf '%sauthor:%s Ignacio del Corro (Naiam)\n' "$MUTED" "$RESET"
+  printf '%sprofile:%s blue-team analyst (read-only, defensive scope)\n' "$MUTED" "$RESET"
+  printf '%starget:%s opencode v1 line (installed: %s)\n' "$MUTED" "$RESET" "$installed"
+  # shellcheck disable=SC2016  # backticks are displayed literally on purpose
+  printf '%salso:%s opencode v2 line via `neogaeshi v2` (on PATH: %s)\n' "$MUTED" "$RESET" "$v2installed"
+  printf '%sruntime:%s ~/.local/share/opencode-v1\n' "$MUTED" "$RESET"
+  printf '%sconfig:%s ~/.config/neogaeshi-v1\n' "$MUTED" "$RESET"
+}
+
+usage() {
+  cat <<EOF
+${VIOLET}neogaeshi${RESET} — blue-team analyst profile for OpenCode (read-only, defensive scope)
+
+${BOLD}Usage${RESET}
+  neogaeshi [args...]    open the V1 TUI with the blue-team-analyst agent
+  neogaeshi v2 [args...] open the SYSTEM opencode (V2) from the NeoGaeshi repo root
+
+${BOLD}Profile${RESET}
+  default agent   blue-team-analyst (read-only, defensive scope)
+  v1 theme        neogaeshi-v1 (violet-dark) + home logo, tiered by terminal size
+  v2 theme        neogaeshi-dark (violet-dark) + titlebar plugin
+  skills          39 curated defensive-security skills
+  memory          engram MCP (local persistent memory)
+
+${BOLD}Commands${RESET}
+  (none)            open the interactive V1 TUI
+  v2 [args...]      run the system OpenCode V2 from the NeoGaeshi root
+  help              show this help
+  --version         show neogaeshi + runtime info
+
+${BOLD}OpenCode V1 flags (passed through)${RESET}
+  -c, --continue    continue the most recent session
+  -s, --session ID  resume the given session by id
+  --fork            fork the session being continued
+  -m, --model       model to use (provider/model)
+  --agent           agent to use
+  --prompt          prompt to use
+  --auto            auto-approve permissions (dangerous)
+  --mini            minimal interactive interface
+
+${BOLD}Other subcommands${RESET}
+  run, serve, session, models, auth, stats, export, ...
+  are forwarded to opencode v1 unchanged. Any argument neogaeshi does not
+  recognize is passed through verbatim.
+
+${MUTED}V1 profile config lives in ~/.config/neogaeshi-v1; the V1 runtime in
+~/.local/share/opencode-v1. Your global opencode (V2) config is never touched;
+\`neogaeshi v2\` runs the global V2 binary but from the NeoGaeshi repo root so
+the repo's skills/theme/plugin/engram MCP apply.${RESET}
+EOF
+}
+
+# --- Wrapper-level commands ------------------------------------------------
+case "${1:-}" in
+  help|--help|-h)
+    usage
+    exit 0
+    ;;
+  --version)
+    version_block
+    exit 0
+    ;;
+  v2)
+    shift
+    if ! command -v opencode >/dev/null 2>&1; then
+      printf '%sneogaeshi v2:%s OpenCode V2 not found on PATH.\n' "$VIOLET" "$RESET" >&2
+      printf '%sInstall it with: curl -fsSL https://opencode.ai/v2/install | bash%s\n' "$MUTED" "$RESET" >&2
+      printf '%s(or re-run the NeoGaeshi installer, which does this for you)%s\n' "$MUTED" "$RESET" >&2
+      exit 127
+    fi
+    # Selects the NeoGaeshi theme for this launch only.
+    # OPENCODE_CLI_CONFIG_CONTENT merges this JSON over the user's cli.json per
+    # launch; no file is modified.
+    export OPENCODE_CLI_CONFIG_CONTENT='{"theme":{"name":"neogaeshi-dark","mode":"dark"}}'
+    cd "$NEOGAESHI_ROOT"
+    exec opencode "$@"
+    ;;
+esac
+
+# --- Hermetic environment (V1 line) ----------------------------------------
+# XDG_CONFIG_HOME=<NEOGAESHI_HOME> makes V1's global config dir
+# <NEOGAESHI_HOME>/opencode, where install.sh places the profile.
+export XDG_CONFIG_HOME="$NEOGAESHI_HOME"
+export XDG_DATA_HOME="$NEOGAESHI_HOME/data"
+# Keep state/cache inside the profile too, so nothing lands in the shared
+# ~/.local/state or ~/.cache that V2 also uses.
+export XDG_STATE_HOME="$NEOGAESHI_HOME/state"
+export XDG_CACHE_HOME="$NEOGAESHI_HOME/cache"
+export OPENCODE_CONFIG="$NEOGAESHI_HOME/opencode/opencode.json"
+
+mkdir -p "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
+
+# --- Exec the isolated V1 binary -------------------------------------------
+if [[ ! -x "$V1_BIN" ]]; then
+  printf '%sneogaeshi:%s OpenCode V1 runtime not found at %s\n' "$VIOLET" "$RESET" "$V1_BIN" >&2
+  printf '%sRun install.sh (repo root) or v1/install.sh first.%s\n' "$MUTED" "$RESET" >&2
+  exit 127
+fi
+
+exec "$V1_BIN" "$@"

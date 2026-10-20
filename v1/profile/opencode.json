@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "blue-team-analyst",
+  "skills": {
+    "paths": ["__NEOGAESHI_ROOT__/skills"]
+  },
+  "mcp": {
+    "engram": {
+      "type": "local",
+      "command": ["__ENGRAM_BIN__", "mcp", "--tools=agent"],
+      "enabled": true
+    }
+  }
+}
