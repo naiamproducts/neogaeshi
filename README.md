@@ -14,6 +14,12 @@ security skills, and [Engram](https://github.com/Gentleman-Programming/engram)
 persistent memory — as a CLI (`neogaeshi`) and as a profile you run from the
 repo root.
 
+The flagship experience is the **OpenCode V1 line** — the one the installer
+sets up by default and the only one that can carry the full NeoGaeshi brand
+(home-screen logo + violet theme + blue-team-analyst agent). An **optional
+OpenCode V2 compatibility line** exists for users who already run OpenCode
+2.x — see [Usage](#usage--the-v1-line-by-default).
+
 - **Author:** Ignacio del Corro (Naiam)
 - **License:** MIT
 - **Scope:** defensive security only — practice and work on systems you own or
@@ -26,14 +32,16 @@ curl -fsSL https://raw.githubusercontent.com/naiamproducts/neogaeshi/main/instal
 ```
 
 The installer is idempotent and walks you through everything: prerequisites,
-engram, OpenCode V2 (system), an isolated OpenCode V1 (1.19.3) runtime, the
-profile, and the `neogaeshi` CLI.
+engram, the isolated OpenCode V1 (1.19.3) runtime — the default NeoGaeshi
+line — the profile, and the `neogaeshi` CLI. The system OpenCode V2 line is
+opt-in and only installed with `--with-v2`.
 
 The one manual step afterwards: connect a model provider with
 `neogaeshi auth login` (or `/connect` inside the TUI).
 
 Options: `--with-auth` (reuse an existing `~/.local/share/opencode/auth.json`
-in the isolated V1 profile), `--force` (replace a conflicting
+in the isolated V1 profile), `--with-v2` (also install the system OpenCode V2
+compatibility line; skipped by default), `--force` (replace a conflicting
 `~/.local/bin/neogaeshi`), `--uninstall`, `--help`.
 
 ## What gets installed where
@@ -45,29 +53,33 @@ in the isolated V1 profile), `--force` (replace a conflicting
 | OpenCode V1 runtime (1.19.3, isolated) | `~/.local/share/opencode-v1` | on re-install |
 | `neogaeshi` CLI | `~/.local/bin/neogaeshi` (symlink) | on re-install |
 | engram | `~/.local/bin/engram` | no |
-| OpenCode V2 (system) | `~/.opencode/bin/opencode` | no |
+| OpenCode V2 (system, **optional** — only with `--with-v2`) | `~/.opencode/bin/opencode` | no |
 | Your global opencode config/data | `~/.config/opencode`, `~/.local/share/opencode` | **never** |
 
 Your existing OpenCode setup is never read or written. The V1 line runs inside
 its own XDG sandbox; the V2 line runs the system `opencode` binary from the
 profile root.
 
-## Usage — two lines
+## Usage — the V1 line (by default)
 
 ```
-neogaeshi              # V1 line: TUI with the home-screen logo, hermetic
+neogaeshi              # V1 line (the product): TUI with the home-screen logo, hermetic
 neogaeshi -c           # continue the most recent V1 session
 neogaeshi -s <id>      # resume a V1 session by id
-neogaeshi v2           # V2 line: system OpenCode V2 from the profile root
+neogaeshi v2           # optional V2 line: system OpenCode V2 (needs OpenCode 2.x on PATH)
 neogaeshi --version    # both lines' status
 neogaeshi help         # full usage
 ```
 
-- **V1 line** — isolated OpenCode 1.19.3 with the violet theme and the
-  tiered home-screen logo (V1 exposes a `home_logo` slot V2 removed).
-- **V2 line** — modern OpenCode, launched from the profile root so the
-  repo's theme, titlebar plugin, skills, and engram MCP are auto-discovered,
-  with the NeoGaeshi theme applied for that launch only.
+- **V1 line (default)** — isolated OpenCode 1.19.3 with the violet theme and
+  the tiered home-screen logo (V1 exposes a `home_logo` slot V2 removed).
+  This is what the one-liner installs and what NeoGaeshi is built around.
+- **V2 line (optional compatibility)** — for users who already use OpenCode
+  2.x or explicitly ask for it (`install.sh --with-v2` installs it). It runs
+  the system `opencode` binary from the profile root so the repo's theme,
+  titlebar plugin, skills, and engram MCP are auto-discovered, with the
+  NeoGaeshi theme applied for that launch only. Note: OpenCode 2.x has no
+  logo-replacement slot, so the V2 line keeps titlebar-only branding.
 
 Inside either TUI: `/neogaeshi-triage`, `/neogaeshi-hunt`,
 `/neogaeshi-timeline`, `/neogaeshi-detection`, `/neogaeshi-status`.
@@ -114,8 +126,8 @@ bash ~/.local/share/neogaeshi/install.sh --uninstall
 ```
 
 Removes the CLI symlink, the hermetic V1 config, the V1 runtime, and the repo
-copy. It never touches your global opencode config or data; engram and the
-system OpenCode binary are general-purpose and stay unless you remove them.
+copy. It never touches your global opencode config or data; engram and any
+system OpenCode V2 binary are general-purpose and stay unless you remove them.
 
 ## Security posture
 

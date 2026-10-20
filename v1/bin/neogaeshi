@@ -108,8 +108,9 @@ case "${1:-}" in
     shift
     if ! command -v opencode >/dev/null 2>&1; then
       printf '%sneogaeshi v2:%s OpenCode V2 not found on PATH.\n' "$VIOLET" "$RESET" >&2
-      printf '%sInstall it with: curl -fsSL https://opencode.ai/v2/install | bash%s\n' "$MUTED" "$RESET" >&2
-      printf '%s(or re-run the NeoGaeshi installer, which does this for you)%s\n' "$MUTED" "$RESET" >&2
+      printf '%sThe V2 line is an optional compatibility line (V1 is the default).\n' "$MUTED" "$RESET" >&2
+      printf 'Install OpenCode V2 with: bash %s/install.sh --with-v2\n' "$NEOGAESHI_ROOT" >&2
+      printf '%s(or install OpenCode 2.x yourself: curl -fsSL https://opencode.ai/v2/install | bash)%s\n' "$MUTED" "$RESET" >&2
       exit 127
     fi
     # Selects the NeoGaeshi theme for this launch only.
