@@ -1,13 +1,17 @@
 ```
-█   █                ▄███▀                       █      ▀
-██  █  ▄███▄  ▄███▄  █   █  ▄████  ▄███▄  ▄████  █      █
-█ █ █  █   █  █   █  █ ███  █   █  █   █  █▄▄▄▄  █████  █
-█  ██  █████  █   █  █   █  ▀████  █████      █  █   █  █
-█   █  ▀███   ▀███▀  ▀███▀      █  ▀███   ▀████  █   █  █
+███  ██                ▄████▄                         ██      ██
+████ ██                ██                             ██
+████ ██ ▄████▄  ▄████▄ ██       ▄████  ▄████▄  ▄████▄ █████▄  ██
+██ ████ ██  ██  ██  ██ ██ ███      ██  ██  ██  ██     ██  ██  ██
+██ ████ ██████  ██  ██ ██  ██  ██████  ██████  ██████ ██  ██  ██
+██  ███ ██      ██  ██ ██  ██  ██  ██  ██          ██ ██  ██  ██
+██  ███ ▀████   ▀████▀ ▀████▀  ▀████▀  ▀████   ▀████▀ ██  ██  ██
 ```
 
-(In the TUI the block letters render in two tones: bright violet
-`#a855f7` with a deep-violet `#6d28d9` pixel drop shadow.)
+(In the TUI the block letters render as a two-tone word split — `Neo` in
+dark blue `#2563eb`, `Gaeshi` in bright violet `#a855f7` — 64 columns
+wide, with 3 tiers: this 64×7 art at ≥66×14, a 3-row wordmark at ≥42×10,
+`◈ NeoGaeshi` below that.)
 
 # NeoGaeshi
 
