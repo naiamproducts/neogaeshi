@@ -1,0 +1,11 @@
+# Runtime state and local evidence — never commit
+workspace/
+journal/
+
+# Secrets — never commit
+.env
+.env.*
+
+# Local scratch
+*.log
+*.bak*
