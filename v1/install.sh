@@ -62,6 +62,7 @@ done
 
 info() { printf '  \033[38;5;141m•\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[38;5;141m✔\033[0m %s\n' "$*"; }
+warn() { printf '  \033[38;5;203m!\033[0m %s\n' "$*" >&2; }
 fail() { printf '  \033[38;5;203m✘\033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- 1. Isolated OpenCode V1 runtime ---------------------------------------
@@ -216,7 +217,37 @@ install_cli() {
 
   chmod +x "$CLI_TARGET"
 
-  case ":$PATH:" in
+  # Shadow detection: resolve what the USER'S shell would actually run, not
+  # what this process sees. The root install.sh prepends $BIN_DIR to PATH for
+  # the whole run, which would mask a foreign 'neogaeshi' that outranks
+  # ~/.local/bin in the user's own environment — NEOGAESHI_USER_PATH is the
+  # caller's PATH as-is when set, and stands in for $PATH otherwise.
+  local lookup_path="${NEOGAESHI_USER_PATH:-$PATH}"
+  local shadow shadow_real target_real kind verb remedy
+  shadow="$( (PATH="$lookup_path"; command -v neogaeshi) 2>/dev/null || true)"
+  [[ "$shadow" == /* ]] || shadow=""   # only a real path can shadow a file
+  if [[ -n "$shadow" ]]; then
+    shadow_real="$(readlink -f "$shadow" 2>/dev/null || true)"
+    target_real="$(readlink -f "$CLI_TARGET" 2>/dev/null || true)"
+    if [[ -n "$shadow_real" && -n "$target_real" && "$shadow_real" != "$target_real" ]]; then
+      if [[ -L "$shadow" ]]; then
+        kind="symlink -> $(readlink "$shadow")"
+        verb="Repoint it at the installed launcher, e.g.:"
+        remedy="ln -sf $CLI_TARGET $shadow"
+      else
+        kind="regular file"
+        verb="Remove it, e.g.:"
+        remedy="mv $shadow $shadow.old"
+      fi
+      warn "WARNING: another 'neogaeshi' shadows the installed one:"
+      printf '      %s  (%s)\n' "$shadow" "$kind" >&2
+      printf '    Your commands would run that copy instead. %s\n' "$verb" >&2
+      printf '      %s\n' "$remedy" >&2
+    fi
+  fi
+
+  # PATH status from the user's own shell perspective (same lookup as above).
+  case ":$lookup_path:" in
     *":$BIN_DIR:"*) ok "\$HOME/.local/bin is on PATH" ;;
     *) info "NOTE: add $BIN_DIR to your PATH to run 'neogaeshi' directly" ;;
   esac

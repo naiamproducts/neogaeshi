@@ -62,6 +62,7 @@ CONFIG_ROOT="$HOME/.config/neogaeshi-v1"
 
 # Make user-local bins visible inside this run (installed tools must be
 # verifiable even when ~/.local/bin is not on PATH yet).
+ORIGINAL_PATH="$PATH"   # the user's own shell PATH, kept for shadow checks
 export PATH="$BIN_DIR:$HOME/.opencode/bin:$PATH"
 
 # --- Presentation -----------------------------------------------------------
@@ -333,6 +334,9 @@ install_profile() {
   if [[ "$WITH_AUTH" == "1" ]]; then extra+=(--with-auth); fi
   if [[ "$FORCE" == "1" ]]; then extra+=(--force); fi
   export NEOGAESHI_ROOT ENGRAM_BIN
+  # v1/install.sh checks for a shadowing 'neogaeshi' against the USER's shell
+  # PATH — this process's PATH has $BIN_DIR prepended, which would mask it.
+  export NEOGAESHI_USER_PATH="$ORIGINAL_PATH"
   bash "$NEOGAESHI_ROOT/v1/install.sh" "${extra[@]+"${extra[@]}"}"
 }
 
@@ -486,6 +490,13 @@ Refusing to reset or overwrite local work. Inspect with:
 }
 
 # --- 8. Sanity + next steps -------------------------------------------------
+# Resolve a command the way a shell whose PATH is $1 would: first file match
+# wins. Used to prove WHICH 'neogaeshi' a sanity check (or a shadow check)
+# actually probed; runs in a contained subshell so $PATH never changes here.
+resolve_on_path() {
+  ( PATH="$1"; command -v "$2" 2>/dev/null || true )
+}
+
 finish() {
   printf '\n%s[4/4]%s Sanity check\n' "$VIOLET" "$RESET"
   # `|| true` + empty-check instead of `|| echo`: `head -1` closes the pipe
@@ -493,20 +504,36 @@ finish() {
   # even when it ran fine.
   local v_engram v_ng v_oc
   v_engram="$(engram --version 2>/dev/null | head -1 || true)"
-  v_ng="$(neogaeshi --version 2>/dev/null | head -1 || true)"
+  # Sanity evidence must name the copy it probed: run the 'neogaeshi' the
+  # USER's shell resolves (a stale copy earlier on PATH outranks our symlink
+  # there), not the one this process sees — this process prepends $BIN_DIR to
+  # PATH, which would mask the shadow. resolve_on_path is a deliberate,
+  # minimal duplicate of the resolve in v1/install.sh: that script runs in a
+  # subshell, so it cannot export its verdict back here.
+  local ng_run ng_via=""
+  ng_run="$(resolve_on_path "$ORIGINAL_PATH" neogaeshi)"
+  [[ "$ng_run" == /* ]] || ng_run=""
+  # Fallback: ~/.local/bin not on the user's PATH yet -> probe the installer's.
+  [[ -n "$ng_run" ]] || ng_run="$(command -v neogaeshi 2>/dev/null || true)"
+  if [[ -n "$ng_run" ]] \
+     && [[ "$(readlink -f "$ng_run" 2>/dev/null || true)" != "$(readlink -f "$NEOGAESHI_ROOT/v1/bin/neogaeshi" 2>/dev/null || true)" ]]; then
+    ng_via="$(printf ' (via %s — shadows the installed launcher; see the WARNING above)' "$ng_run")"
+  fi
+  if [[ -n "$ng_run" ]]; then
+    v_ng="$("$ng_run" --version 2>/dev/null | head -1 || true)"
+  fi
   v_oc="$(opencode --version 2>/dev/null | head -1 || true)"
   v_oc="${v_oc#opencode }"
   [[ -n "$v_engram" ]] || v_engram="NOT RUNNABLE"
   [[ -n "$v_ng" ]] || v_ng="NOT RUNNABLE"
   [[ -n "$v_oc" ]] || v_oc="NOT RUNNABLE"
   printf '  engram      %s\n' "$v_engram"
-  printf '  neogaeshi   %s\n' "$v_ng"
+  printf '  neogaeshi   %s%s\n' "$v_ng" "$ng_via"
   printf '  opencode v2 %s\n' "$v_oc"
 
-  case ":$PATH:" in
-    *":$BIN_DIR:"*) : ;;
-    *) printf '\n%sNOTE:%s add %s to your PATH to run neogaeshi/engram directly\n' "$MUTED" "$RESET" "$BIN_DIR" ;;
-  esac
+  # PATH advice comes from v1/install.sh, which checks it against the user's
+  # own PATH ($ORIGINAL_PATH). Checking the installer's PATH here could never
+  # fire: it always starts with $BIN_DIR by construction.
 
   # The V2 line is opt-in: only point at it when OpenCode V2 is actually present.
   local v2_note

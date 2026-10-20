@@ -159,6 +159,29 @@ Removes the CLI symlink, the hermetic V1 config, the V1 runtime, and the repo
 copy. It never touches your global opencode config or data; engram and any
 system OpenCode V2 binary are general-purpose and stay unless you remove them.
 
+## Troubleshooting
+
+### `neogaeshi update` behaves like an unknown argument
+
+**Symptom:** `neogaeshi update` (or another subcommand) acts as if the
+argument were unknown — e.g. `Error: Failed to change directory to <cwd>/update`
+— because the argument falls through to the OpenCode V1 passthrough.
+
+**Cause:** a stale regular-file copy of `neogaeshi` (left over from manual
+pre-release testing, typically in `/usr/local/bin` or another directory earlier
+on your `PATH`) shadows the installer's `~/.local/bin/neogaeshi` symlink. Your
+shell runs that older launcher, which has no `update` subcommand. The installer
+now detects this and prints a WARNING naming the shadowing path.
+
+**Fix:** remove (or repoint) the foreign copy:
+
+```bash
+type -a neogaeshi
+S="$(command -v neogaeshi)"; T=~/.local/share/neogaeshi/v1/bin/neogaeshi
+[ -L "$S" ] || mv "$S" "$S.old"
+ln -sf "$T" "$S" && hash -r
+```
+
 ## Security posture
 
 - **Read-only by default.** Shell and edit tools require explicit approval
