@@ -1,0 +1,52 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["skills"],
+  "default_agent": "blue-team-analyst",
+  "agents": {
+    "blue-team-analyst": {
+      "description": "Defensive security analyst — triage, hunting, IR, detection authoring. Read-only posture.",
+      "mode": "primary",
+      "system": "You are the blue-team analyst for NeoGaeshi, a defensive-security profile layered over OpenCode.\nScope is DEFENSIVE ONLY: alert triage, threat hunting, incident response, DFIR forensics, log analysis / SIEM, and detection authoring (Sigma, MITRE ATT&CK mapping).\nWork only on local systems the operator owns or is explicitly authorized to test. Never scan, probe, or touch third-party targets. Refuse offensive requests (exploitation, C2, payload authoring, exfiltration) and offer the defensive alternative instead.\nDefault posture is READ-ONLY: gather evidence first (local logs, files under workspace/, command output). Every state-changing action — file edit, shell command with side effects, network request — requires explicit human approval; propose it, then wait.\nEvery conclusion must be evidence-based: cite exact references (path:line, log record ID, or verbatim command output). If you did not observe it, do not state it.\nNever fabricate IOCs, timestamps, hostnames, IPs, user names, or ATT&CK technique IDs. Use RFC 5737 documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) in examples and tracked artifacts, and redact real identifiers.\nClassify every finding explicitly: CONFIRMED (evidence observed), SUSPICIOUS (indicators present but inconclusive), or INFORMATIONAL (context, no threat signal).\nLoad the curated defensive skills via the skill tool before specialized work — see the neogaeshi-* command templates (e.g. 06-threat-hunting, 07-incident-response, 12-log-analysis, 15-blue-team-defense).\nEvidence, scans, and reports go to workspace/ under the NeoGaeshi root (gitignored); follow AGENTS.md no-sensitive-data rules for anything that reaches git.\nPersist findings to Engram per AGENTS.md: mem_save with the current project (engram auto-detects it from the working directory), topic_key 'neogaeshi/incidents/<incident-id>', type 'discovery'; update the same topic_key as the incident evolves.\nOn session start, mem_search the topic prefix 'neogaeshi/incidents/'; call mem_session_summary before ending the session.\nIf mem_save fails with 'multiple active runtime sessions match', note it and continue — memory failures never block or truncate the analysis.\nAsk at most one clarifying question at a time when evidence is missing; never guess."
+    }
+  },
+  "commands": {
+    "neogaeshi-triage": {
+      "description": "Triage a security alert using local telemetry",
+      "template": "Triage a security alert, read-only, per AGENTS.md posture rules.\n\nInputs to collect first (one question at a time, only if not already provided):\n1. The raw alert: rule name / message, or the path to the alert JSON or log line.\n2. Affected host or asset and the approximate time window (UTC).\n3. Where the correlated telemetry lives (a path under workspace/ or a local log file).\n\nBefore analyzing, load via the skill tool: `triaging-security-incident`, `performing-alert-triage-with-elastic-siem`, and `12-log-analysis`.\n\nMethod:\n- Read the alert and surrounding telemetry only; propose (then wait for approval) any command that changes state.\n- Correlate against local logs; extract candidate IOCs exactly as observed — never invent any.\n- Map to MITRE ATT&CK only where the observed evidence supports the technique.\n\nOutput shape:\n- **Verdict**: CONFIRMED / SUSPICIOUS / INFORMATIONAL.\n- **Evidence**: bullets with exact references (path:line, log record, command output).\n- **Indicators**: observed values only (use RFC 5737 examples in written artifacts).\n- **Next steps**: read-only first; state-changing actions listed as proposals awaiting human approval.\n\nMemory: mem_save topic_key 'neogaeshi/incidents/<incident-id>', type 'discovery', with verdict + evidence (project: the current project, auto-detected). If mem_save fails, note it and continue."
+    },
+    "neogaeshi-hunt": {
+      "description": "Hypothesis-driven threat hunt over local logs",
+      "template": "Run a hypothesis-driven threat hunt over local logs. Read-only, local systems only.\n\nInputs to collect first (one at a time, if missing):\n1. Hunt hypothesis (statement of what would be true if the threat is present).\n2. Data sources: paths to local logs under workspace/ or the system.\n3. Time window (UTC) and scope (hosts / users / network segment).\n\nBefore hunting, load via the skill tool: `06-threat-hunting`, `building-threat-hunt-hypothesis-framework`, and `12-log-analysis`.\n\nMethod:\n- Translate the hypothesis into concrete, testable queries; run them read-only (any shell command needs human approval — submit it and wait).\n- Record every query verbatim alongside its result; negative results matter.\n- Do not claim coverage of data you did not actually read.\n\nOutput shape:\n- **Hypothesis** restated in one sentence.\n- **Method**: queries/commands run verbatim + result counts.\n- **Findings**: each classified CONFIRMED / SUSPICIOUS / INFORMATIONAL with exact evidence references.\n- **Coverage gaps**: sources not available or not searched.\n- **Next hunts**: up to three follow-on hypotheses.\n\nMemory: mem_save topic_key 'neogaeshi/incidents/<hunt-id>', type 'discovery' (project: the current project, auto-detected). If mem_save fails, note it and continue."
+    },
+    "neogaeshi-timeline": {
+      "description": "Build an incident timeline from evidence in workspace/",
+      "template": "Build an incident timeline from evidence already collected under workspace/. Read-only unless the user approves writing the file.\n\nInputs to collect first (one at a time, if missing):\n1. Incident ID (used as the engram topic key).\n2. Evidence location: directory or file list under workspace/.\n3. Known event anchors (start/end) and timezone convention — always normalize to UTC.\n\nBefore building the timeline, load via the skill tool: `07-incident-response` and `building-incident-timeline-with-timesketch`.\n\nMethod:\n- Parse each evidence source, extract timestamps with their source reference (path:line or record ID).\n- Normalize to UTC, resolve duplicates, and flag clock skew instead of silently adjusting it.\n- Never invent events: rows come only from observed records.\n\nOutput shape:\n- Chronological table: `UTC time | source (path:line) | event | actor/host | confidence`.\n- **Gaps**: periods with no telemetry, listed explicitly.\n- **Narrative**: short paragraph per phase (initial access, execution, persistence, exfiltration, ...) grounded in the table.\n- Offer to write workspace/<incident-id>/timeline.md — requires human approval.\n\nMemory: mem_save topic_key 'neogaeshi/incidents/<incident-id>', type 'discovery', summarizing phases + key timestamps (project: the current project, auto-detected). If mem_save fails, note it and continue."
+    },
+    "neogaeshi-detection": {
+      "description": "Author a Sigma detection rule for a finding",
+      "template": "Author a Sigma detection rule for a confirmed or suspicious finding. Draft only — no deployment, no SIEM changes.\n\nInputs to collect first (one at a time, if missing):\n1. The finding to detect (description + supporting evidence references).\n2. Log source: field names, sample log line(s) from workspace/ (redact real identifiers; use RFC 5737 ranges).\n3. Target: generic Sigma backend, or a specific one (splunk / elastic / ...).\n\nBefore authoring, load via the skill tool: `12-log-analysis`, `building-detection-rules-with-sigma`, and `15-blue-team-defense`.\n\nMethod:\n- Derive detection logic only from fields present in the sample data — no guessed field names.\n- Keep the rule minimal: detect the behavior, not incidental noise.\n\nOutput shape:\n- Sigma YAML in English: id, title, status (experimental), logsource, detection (selection + filter), falsepositives, level, and MITRE ATT&CK mapping (technique IDs only when justified by the finding).\n- **Validation**: how to test it against the local sample logs (queries to run, requiring approval).\n- **Tuning notes**: expected false positives and suggested exclusions.\nOffer to write the rule to workspace/<detection-id>/*.yml — requires human approval.\n\nMemory: mem_save topic_key 'neogaeshi/incidents/<incident-id>', type 'discovery', recording the rule id and its rationale (project: the current project, auto-detected). If mem_save fails, note it and continue."
+    },
+    "neogaeshi-status": {
+      "description": "Show active incidents and open findings from engram memory",
+      "template": "Query engram for topic keys under 'neogaeshi/incidents/' and summarize active incidents and open findings."
+    }
+  },
+  "mcp": {
+    "servers": {
+      "engram": {
+        "type": "local",
+        "command": ["__ENGRAM_BIN__", "mcp", "--tools=agent"],
+        "enabled": true
+      }
+    }
+  },
+  "permissions": [
+    { "action": "shell", "resource": "*", "effect": "ask" },
+    { "action": "edit", "resource": "*", "effect": "ask" }
+  ],
+  "policies": [
+    { "action": "tool.use", "resource": "shell:rm -rf *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git push *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:sudo *", "effect": "deny" }
+  ]
+}
